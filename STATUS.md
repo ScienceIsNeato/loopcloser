@@ -1,5 +1,5 @@
 <!-- willville
-status: maintenance
+status: shipping
 -->
 
 # LoopCloser - Current Status
