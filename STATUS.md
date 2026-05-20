@@ -1,3 +1,7 @@
+<!-- willville
+status: maintenance
+-->
+
 # LoopCloser - Current Status
 
 ## Latest Work: PR #72 Email Concurrency Stabilization + Loop-017 Follow-Up (2026-04-03)
