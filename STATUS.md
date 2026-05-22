@@ -1,5 +1,6 @@
 <!-- willville
 status: shipping
+summary: Flask web app for managing course assessment and outcome workflows
 -->
 
 # LoopCloser - Current Status
