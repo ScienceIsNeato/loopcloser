@@ -83,6 +83,42 @@ def get_import_progress(progress_id: str) -> ResponseReturnValue:
     return jsonify(progress)
 
 
+@imports_bp.route("/import/adapters", methods=["GET"])
+@permission_required("import_data")
+def list_import_adapters() -> ResponseReturnValue:
+    """List import adapters available to the current user's institution.
+
+    Used to populate the import-format dropdown so each institution sees the
+    adapters bound to it (e.g. CEI's formats) plus any public adapters.
+    """
+    try:
+        from src.adapters.adapter_registry import get_adapter_registry
+
+        institution_id = get_current_institution_id_safe()
+        registry = get_adapter_registry()
+        registry.discover_adapters()
+
+        adapters: List[Dict[str, str]] = []
+        seen: set[str] = set()
+        institution_adapters = (
+            registry.get_adapters_for_institution(institution_id)
+            if institution_id
+            else []
+        )
+        for adapter in institution_adapters:
+            if adapter["id"] not in seen:
+                seen.add(adapter["id"])
+                adapters.append({"id": adapter["id"], "name": adapter["name"]})
+        for adapter in registry.get_all_adapters():
+            if adapter.get("public") and adapter["id"] not in seen:
+                seen.add(adapter["id"])
+                adapters.append({"id": adapter["id"], "name": adapter["name"]})
+
+        return jsonify({"success": True, "adapters": adapters})
+    except Exception as e:
+        return handle_api_error(e, "List adapters", "Failed to list import adapters")
+
+
 @imports_bp.route("/import/validate", methods=["POST"])
 @permission_required("import_data")
 def validate_import_file() -> ResponseReturnValue:
