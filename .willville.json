@@ -1,8 +1,7 @@
 {
-  "schema_version": 1,
   "agent": {
-    "status": "locked and loaded",
-    "direction": "blocked on 40% Matt",
-    "last_update": "2026-05-29T19:30:00Z"
+    "status": "Got Matt's CEI data file, mapped it out and planned the demo import",
+    "direction": "Building the import so Matt can upload it on dev and watch everything fill in",
+    "last_update": "2026-06-04T22:16:51Z"
   }
 }
