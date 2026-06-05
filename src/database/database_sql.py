@@ -25,12 +25,30 @@ class SQLService:
     def __init__(self, db_path: str | None = None) -> None:
         db_url = db_path or os.getenv("DATABASE_URL", "sqlite:///loopcloser.db")
         assert db_url is not None, "DATABASE_URL must be set"
-        connect_args = (
-            {"check_same_thread": False} if db_url.startswith("sqlite") else {}
-        )
-        self.engine = create_engine(
-            db_url, future=True, echo=False, connect_args=connect_args
-        )
+        is_sqlite = db_url.startswith("sqlite")
+        connect_args = {"check_same_thread": False} if is_sqlite else {}
+        # pool_pre_ping validates a pooled connection before use, transparently
+        # reconnecting if it's dead. Without it, serverless Postgres (e.g. Neon)
+        # closes idle connections and the next reuse fails with
+        # "SSL connection has been closed unexpectedly". pool_recycle proactively
+        # drops connections older than the idle window. (No-ops for SQLite.)
+        if is_sqlite:
+            self.engine = create_engine(
+                db_url,
+                future=True,
+                echo=False,
+                connect_args=connect_args,
+                pool_pre_ping=True,
+            )
+        else:
+            self.engine = create_engine(
+                db_url,
+                future=True,
+                echo=False,
+                connect_args=connect_args,
+                pool_pre_ping=True,
+                pool_recycle=300,
+            )
         Base.metadata.create_all(self.engine)
         self._session_factory = scoped_session(
             sessionmaker(bind=self.engine, expire_on_commit=False, autoflush=False)
