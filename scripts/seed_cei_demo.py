@@ -18,10 +18,14 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+from typing import Any, cast
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from sqlalchemy import text
+
 from src.database import database_service as dbs
+from src.database.database_service import db
 from src.services.password_service import hash_password
 
 INSTITUTION_NAME = "College of Eastern Idaho (Demo)"
@@ -29,6 +33,94 @@ INSTITUTION_SHORT_NAME = "CEI"
 ADMIN_EMAIL = "admin.demo@cei-demo.example"
 ADMIN_PASSWORD = "Demo2024!"
 ADAPTER_ID = "cei_outcomes_results_v1"
+
+# Child-first DELETE order to wipe one institution's data. delete_institution's
+# ORM cascade is not configured, so we scope every dependent table explicitly.
+# Standard SQL (DELETE ... WHERE ... IN (SELECT ...)) — works on SQLite and
+# Postgres alike. Param :iid is the institution id.
+_RESET_STEPS = [
+    (
+        "outcome history",
+        """DELETE FROM outcome_history WHERE section_outcome_id IN (
+            SELECT cso.id FROM course_section_outcomes cso
+            JOIN course_sections cs ON cso.section_id = cs.id
+            JOIN course_offerings co ON cs.offering_id = co.id
+            WHERE co.institution_id = :iid)""",
+    ),
+    (
+        "section outcomes",
+        """DELETE FROM course_section_outcomes WHERE section_id IN (
+            SELECT cs.id FROM course_sections cs
+            JOIN course_offerings co ON cs.offering_id = co.id
+            WHERE co.institution_id = :iid)""",
+    ),
+    (
+        "instructor reminders",
+        """DELETE FROM instructor_reminders WHERE section_id IN (
+            SELECT cs.id FROM course_sections cs
+            JOIN course_offerings co ON cs.offering_id = co.id
+            WHERE co.institution_id = :iid)""",
+    ),
+    (
+        "sections",
+        """DELETE FROM course_sections WHERE offering_id IN (
+            SELECT id FROM course_offerings WHERE institution_id = :iid)""",
+    ),
+    ("offerings", "DELETE FROM course_offerings WHERE institution_id = :iid"),
+    (
+        "PLO mapping entries",
+        """DELETE FROM plo_mapping_entries WHERE mapping_id IN (
+            SELECT m.id FROM plo_mappings m JOIN programs p ON m.program_id = p.id
+            WHERE p.institution_id = :iid)""",
+    ),
+    (
+        "PLO mappings",
+        """DELETE FROM plo_mappings WHERE program_id IN (
+            SELECT id FROM programs WHERE institution_id = :iid)""",
+    ),
+    (
+        "course outcomes",
+        """DELETE FROM course_outcomes WHERE course_id IN (
+            SELECT id FROM courses WHERE institution_id = :iid)""",
+    ),
+    (
+        "course-program links",
+        """DELETE FROM course_programs
+            WHERE program_id IN (SELECT id FROM programs WHERE institution_id = :iid)
+               OR course_id IN (SELECT id FROM courses WHERE institution_id = :iid)""",
+    ),
+    (
+        "user-program links",
+        """DELETE FROM user_programs
+            WHERE program_id IN (SELECT id FROM programs WHERE institution_id = :iid)
+               OR user_id IN (SELECT id FROM users WHERE institution_id = :iid)""",
+    ),
+    ("program outcomes", "DELETE FROM program_outcomes WHERE institution_id = :iid"),
+    ("programs", "DELETE FROM programs WHERE institution_id = :iid"),
+    ("courses", "DELETE FROM courses WHERE institution_id = :iid"),
+    ("terms", "DELETE FROM terms WHERE institution_id = :iid"),
+    ("user invitations", "DELETE FROM user_invitations WHERE institution_id = :iid"),
+    ("audit log", "DELETE FROM audit_log WHERE institution_id = :iid"),
+    ("users", "DELETE FROM users WHERE institution_id = :iid"),
+    ("institution", "DELETE FROM institutions WHERE id = :iid"),
+]
+
+
+def reset_cei_data(institution_id: str) -> None:
+    """Wipe all CEI demo data (one transaction) so re-seeding is deterministic.
+
+    The import is not fully idempotent (sections and PLO mappings would
+    duplicate on re-run), so a clean wipe before re-seeding is the reliable way
+    to run this repeatedly.
+    """
+    total = 0
+    with cast(Any, db).sql.session_scope() as session:
+        for label, sql in _RESET_STEPS:
+            count = session.execute(text(sql), {"iid": institution_id}).rowcount or 0
+            total += count
+            if count:
+                print(f"  - cleared {count} {label}")
+    print(f"✓ Reset removed {total} CEI rows")
 
 
 def ensure_institution() -> str:
@@ -119,9 +211,28 @@ def main() -> int:
         action="store_true",
         help="Simulate the import without writing rows",
     )
+    parser.add_argument(
+        "--reset",
+        action="store_true",
+        help="Wipe all existing CEI demo data before seeding (for clean re-runs)",
+    )
     args = parser.parse_args()
 
     print(f"Database: {os.environ.get('DATABASE_URL', '(default)')}")
+
+    existing = dbs.get_institution_by_short_name(INSTITUTION_SHORT_NAME)
+    if args.reset:
+        if existing:
+            print("Resetting existing CEI demo data...")
+            reset_cei_data(existing["institution_id"])
+        else:
+            print("No existing CEI data to reset.")
+    elif existing and args.import_file:
+        print(
+            "⚠️  CEI data already exists. Re-importing without --reset will create "
+            "duplicate sections/mappings. Re-run with --reset for a clean load."
+        )
+
     institution_id = ensure_institution()
     ensure_admin(institution_id)
 
