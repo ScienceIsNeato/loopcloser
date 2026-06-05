@@ -380,71 +380,108 @@
     })
       .then((response) => response.json())
       .then((data) => {
+        // Real imports run server-side and return a progress_id to poll for
+        // live progress. Validation (dry run) returns its result inline.
+        if (data.success && data.async && data.progress_id) {
+          pollImportProgress(data.progress_id);
+          return;
+        }
         if (data.success) {
-          // Update progress bar to 100% before hiding
+          progressBar.value = 100;
           progressBar.style.width = "100%";
-          progressBar.setAttribute("aria-valuenow", 100);
           progressBar.textContent = "100%";
-          statusDiv.textContent = isValidation
-            ? "Validation completed!"
-            : "Import completed!";
-
-          // Brief delay to show 100% completion
-          setTimeout(() => {
-            // Hide progress, show results
-            progressDiv.style.display = "none";
-            resultsDiv.style.display = "block";
-
-            resultsContent.innerHTML = `
-                    <div class="alert alert-success">
-                        <i class="fas fa-check-circle me-2"></i>
-                        <strong>${isValidation ? "Validation" : "Import"} completed successfully!</strong>
-                        <div class="mt-2">
-                            <div>Records processed: ${data.records_processed || 0}</div>
-                            <div>Records created: ${data.records_created || 0}</div>
-                            <div>Records updated: ${data.records_updated || 0}</div>
-                            <div>Records skipped: ${data.records_skipped || 0}</div>
-                        </div>
-                    </div>
-                `;
-
-            // Auto-reload the page after 2 seconds for successful imports (not validations)
-            if (!isValidation) {
-              setTimeout(() => {
-                window.location.reload();
-              }, 2000);
-            }
-          }, 500); // 500ms delay to show completion
+          statusDiv.textContent = "Validation completed!";
+          showImportResult({ ok: true, isValidation: isValidation, stats: data });
         } else {
-          // Hide progress immediately on error
-          progressDiv.style.display = "none";
-          resultsDiv.style.display = "block";
-          resultsContent.innerHTML = `
-                <div class="alert alert-danger">
-                    <i class="fas fa-exclamation-triangle me-2"></i>
-                    <strong>${isValidation ? "Validation" : "Import"} failed:</strong>
-                    <div class="mt-2">${data.error || "Unknown error occurred"}</div>
-                </div>
-            `;
+          showImportResult({
+            ok: false,
+            isValidation: isValidation,
+            error: data.error || "Unknown error occurred",
+          });
         }
       })
       .catch((error) => {
-        // Hide progress, show results
-        progressDiv.style.display = "none";
-        resultsDiv.style.display = "block";
+        showImportResult({
+          ok: false,
+          isValidation: isValidation,
+          error: error.message || "Network error occurred",
+        });
+      });
+  }
 
-        resultsContent.innerHTML = `
-            <div class="alert alert-danger">
-                <i class="fas fa-exclamation-triangle me-2"></i>
-                <strong>Error:</strong> ${error.message || "Network error occurred"}
+  // Poll the server for live import progress and drive the progress bar.
+  function pollImportProgress(progressId) {
+    const progressBar = document.getElementById("importProgressBar");
+    const statusDiv = document.getElementById("importStatus");
+    const poll = setInterval(() => {
+      fetch(`/api/import/progress/${progressId}`, { credentials: "include" })
+        .then((r) => r.json())
+        .then((p) => {
+          const pct = Math.max(0, Math.min(100, Math.round(p.percentage || 0)));
+          progressBar.value = pct;
+          progressBar.style.width = pct + "%";
+          progressBar.setAttribute("aria-valuenow", pct);
+          progressBar.textContent = pct + "%";
+          const counts =
+            p.total_records > 0
+              ? ` (${p.records_processed || 0}/${p.total_records})`
+              : "";
+          statusDiv.textContent = (p.message || "Working...") + counts;
+
+          if (p.status === "complete") {
+            clearInterval(poll);
+            showImportResult({ ok: true, isValidation: false, stats: p.result || {} });
+            setTimeout(() => window.location.reload(), 2000);
+          } else if (p.status === "error") {
+            clearInterval(poll);
+            showImportResult({
+              ok: false,
+              isValidation: false,
+              error: p.error || "Import failed",
+            });
+          }
+        })
+        .catch(() => {
+          /* transient network blip; keep polling */
+        });
+    }, 600);
+  }
+
+  // Render the final success/error panel and re-enable the action buttons.
+  function showImportResult(opts) {
+    const progressDiv = document.getElementById("importProgress");
+    const resultsDiv = document.getElementById("importResults");
+    const resultsContent = document.getElementById("importResultsContent");
+    const label = opts.isValidation ? "Validation" : "Import";
+
+    progressDiv.style.display = "none";
+    resultsDiv.style.display = "block";
+    document.getElementById("validateFileBtn").disabled = false;
+    document.getElementById("executeImportBtn").disabled = false;
+
+    if (opts.ok) {
+      const s = opts.stats || {};
+      resultsContent.innerHTML = `
+            <div class="alert alert-success">
+                <i class="fas fa-check-circle me-2"></i>
+                <strong>${label} completed successfully!</strong>
+                <div class="mt-2">
+                    <div>Records processed: ${s.records_processed || 0}</div>
+                    <div>Records created: ${s.records_created || 0}</div>
+                    <div>Records updated: ${s.records_updated || 0}</div>
+                    <div>Records skipped: ${s.records_skipped || 0}</div>
+                </div>
             </div>
         `;
-      })
-      .finally(() => {
-        // Re-enable buttons
-        document.getElementById("validateFileBtn").disabled = false;
-        document.getElementById("executeImportBtn").disabled = false;
-      });
+    } else {
+      resultsContent.innerHTML = `
+            <div class="alert alert-danger">
+                <i class="fas fa-exclamation-triangle me-2"></i>
+                <strong>${label} failed:</strong>
+                <div class="mt-2">${opts.error || "Unknown error occurred"}</div>
+            </div>
+        `;
+    }
   }
 
   // Functions called by dashboard panels

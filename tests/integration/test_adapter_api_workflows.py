@@ -170,10 +170,26 @@ class TestAdapterAPIWorkflows:
                     },
                 )
 
-            assert response.status_code == 200
+            # Real imports run asynchronously: the request returns 202 + a
+            # progress_id, and the result is reported via the progress tracker.
+            assert response.status_code == 202
             data = response.get_json()
             assert data["success"] is True
-            assert data["records_processed"] > 0
+            progress_id = data["progress_id"]
+
+            import time
+
+            progress = {}
+            for _ in range(100):
+                progress = client.get(
+                    f"/api/import/progress/{progress_id}"
+                ).get_json()
+                if progress.get("status") in ("complete", "error"):
+                    break
+                time.sleep(0.05)
+
+            assert progress.get("status") == "complete", progress
+            assert progress["result"]["records_processed"] > 0
 
     def test_instructor_import_restriction_via_api(self, client: Any) -> None:
         """Test that instructors cannot import via API."""
