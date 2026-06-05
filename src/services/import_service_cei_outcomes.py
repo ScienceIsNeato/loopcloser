@@ -19,6 +19,8 @@ Key behaviors:
   (e.g. "AT1", "G1.1") is preserved in ``extras.label``.
 - The routine is idempotent: re-running against the same institution reuses
   existing entities instead of duplicating them.
+- Progress: the total object count is known upfront, so persistence ticks a
+  progress_callback with a real percentage as each object is written.
 """
 
 from __future__ import annotations
@@ -33,6 +35,21 @@ from src.database import database_service as dbs
 # (e.g. "ASE-103L.1" -> "ASE-103L").
 _COURSE_FROM_CLLO = re.compile(r"^(.*)\.\d+$")
 
+# parsed_data keys persisted, in the order they are written. Used to compute the
+# total object count for progress reporting.
+_PROGRESS_KEYS = (
+    "programs",
+    "courses",
+    "clos",
+    "program_outcomes",
+    "users",
+    "terms",
+    "offerings",
+    "sections",
+    "section_outcomes",
+    "plo_mapping_entries",
+)
+
 
 class ImportServiceCEIOutcomesMixin:
     """Persist the CEI outcomes-results adapter's parsed entities."""
@@ -41,6 +58,13 @@ class ImportServiceCEIOutcomesMixin:
     institution_id: str
     _log: Callable[..., None]
     logger: Any
+    progress_callback: Optional[Callable[..., None]]
+
+    # Progress state (initialized per run in _process_cei_outcomes)
+    _cei_total: int = 0
+    _cei_done: int = 0
+    _cei_last_pct: int = -1
+    _cei_stage: str = ""
 
     def _process_cei_outcomes(
         self, parsed_data: Dict[str, List[Dict[str, Any]]], dry_run: bool = False
@@ -51,25 +75,42 @@ class ImportServiceCEIOutcomesMixin:
                 self._log(f"DRY RUN: would persist {len(records)} {data_type}")
             return
 
+        # Total objects known upfront -> the progress bar shows a real percentage.
+        self._cei_total = sum(len(parsed_data.get(k, [])) for k in _PROGRESS_KEYS)
+        self._cei_done = 0
+        self._cei_last_pct = -1
+        self._cei_stage = "starting"
+        self._cei_report("Starting import", 0)
+
+        self._cei_stage = "programs"
         program_ids = self._persist_programs(parsed_data.get("programs", []))
+        self._cei_stage = "courses"
         course_ids = self._persist_courses(parsed_data.get("courses", []))
+        self._cei_stage = "course outcomes"
         outcome_ids = self._persist_course_outcomes(
             parsed_data.get("clos", []), course_ids
         )
+        self._cei_stage = "program outcomes"
         plo_ids = self._persist_program_outcomes(
             parsed_data.get("program_outcomes", []), program_ids
         )
+        self._cei_stage = "instructors"
         self._persist_users(parsed_data.get("users", []))
+        self._cei_stage = "terms"
         self._persist_terms(parsed_data.get("terms", []))
+        self._cei_stage = "offerings"
         offering_ids = self._persist_offerings(
             parsed_data.get("offerings", []), course_ids
         )
+        self._cei_stage = "sections"
         section_ids = self._persist_sections(
             parsed_data.get("sections", []), offering_ids
         )
+        self._cei_stage = "outcome results"
         self._persist_section_outcomes(
             parsed_data.get("section_outcomes", []), section_ids, outcome_ids
         )
+        self._cei_stage = "program mappings"
         self._persist_plo_mappings(
             parsed_data.get("plo_mapping_entries", []),
             program_ids,
@@ -77,6 +118,30 @@ class ImportServiceCEIOutcomesMixin:
             outcome_ids,
             course_ids,
         )
+        self._cei_report("Import complete", 100)
+
+    # ------------------------------------------------------------------ #
+    # Progress reporting
+    # ------------------------------------------------------------------ #
+    def _cei_tick(self) -> None:
+        """Count one processed object and emit progress when the percent changes."""
+        self._cei_done += 1
+        if not self._cei_total:
+            return
+        pct = min(99, int(self._cei_done * 100 / self._cei_total))
+        if pct != self._cei_last_pct:
+            self._cei_report(f"Importing {self._cei_stage}", pct)
+
+    def _cei_report(self, message: str, percentage: int) -> None:
+        self._cei_last_pct = percentage
+        callback = getattr(self, "progress_callback", None)
+        if callback:
+            callback(
+                percentage=percentage,
+                message=message,
+                records_processed=self._cei_done,
+                total_records=self._cei_total,
+            )
 
     # ------------------------------------------------------------------ #
     # Individual entity persistence (each returns a lookup for later steps)
@@ -88,6 +153,7 @@ class ImportServiceCEIOutcomesMixin:
             for p in dbs.get_programs_by_institution(self.institution_id)
         }
         for program in programs:
+            self._cei_tick()
             short = program["short_name"]
             if short in lookup:
                 self.stats["records_skipped"] += 1
@@ -108,6 +174,7 @@ class ImportServiceCEIOutcomesMixin:
         """Create courses; return {course_number: course_id}."""
         lookup: Dict[str, str] = {}
         for course in courses:
+            self._cei_tick()
             number = course["course_number"]
             existing = dbs.get_course_by_number(number, self.institution_id)
             if existing:
@@ -133,6 +200,7 @@ class ImportServiceCEIOutcomesMixin:
         lookup: Dict[str, str] = {}
         existing_by_course: Dict[str, Dict[str, str]] = {}
         for clo in clos:
+            self._cei_tick()
             course_id = course_ids.get(clo["course_number"])
             if not course_id:
                 continue
@@ -170,6 +238,7 @@ class ImportServiceCEIOutcomesMixin:
         lookup: Dict[str, str] = {}
         existing_by_program: Dict[str, Dict[int, str]] = {}
         for plo in program_outcomes:
+            self._cei_tick()
             short = plo["program_short_name"]
             program_id = program_ids.get(short)
             if not program_id:
@@ -202,6 +271,7 @@ class ImportServiceCEIOutcomesMixin:
     def _persist_users(self, users: List[Dict[str, Any]]) -> None:
         """Create instructor accounts (demo emails, no login expected)."""
         for user in users:
+            self._cei_tick()
             if dbs.get_user_by_email(user["email"]):
                 self.stats["records_skipped"] += 1
                 continue
@@ -221,6 +291,7 @@ class ImportServiceCEIOutcomesMixin:
 
     def _persist_terms(self, terms: List[Dict[str, Any]]) -> None:
         for term in terms:
+            self._cei_tick()
             if dbs.get_term_by_name(term["term_name"], self.institution_id):
                 self.stats["records_skipped"] += 1
                 continue
@@ -242,6 +313,7 @@ class ImportServiceCEIOutcomesMixin:
         """Create offerings (program_id=None); return {(course,term): offering_id}."""
         lookup: Dict[Tuple[str, ...], str] = {}
         for offering in offerings:
+            self._cei_tick()
             course_id = course_ids.get(offering["course_number"])
             term = dbs.get_term_by_name(offering["term_name"], self.institution_id)
             if not course_id or not term:
@@ -275,6 +347,7 @@ class ImportServiceCEIOutcomesMixin:
         """
         lookup: Dict[Tuple[str, ...], str] = {}
         for section in sections:
+            self._cei_tick()
             offering_id = offering_ids.get(
                 (section["course_number"], section["term_name"])
             )
@@ -309,6 +382,7 @@ class ImportServiceCEIOutcomesMixin:
     ) -> None:
         """Update auto-created section outcomes with per-instructor pass/took."""
         for measurement in section_outcomes:
+            self._cei_tick()
             section_id = section_ids.get(
                 (
                     measurement["course_number"],
@@ -358,12 +432,14 @@ class ImportServiceCEIOutcomesMixin:
         for short, program_entries in by_program.items():
             program_id = program_ids.get(short)
             if not program_id:
+                self._cei_done += len(program_entries)
                 continue
             draft = dbs.get_or_create_plo_mapping_draft(program_id, None)
             mapping_id = draft["id"]
             linked_courses: set[str] = set()
 
             for entry in program_entries:
+                self._cei_tick()
                 plo_id = plo_ids.get(f"{short}|{entry['plo_label']}")
                 outcome_id = outcome_ids.get(entry["clo_number"])
                 if plo_id and outcome_id:

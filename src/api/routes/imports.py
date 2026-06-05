@@ -455,16 +455,45 @@ def _process_excel_import(
             temp_filepath = temp_file.name
         cleanup_temp = True
 
+    # Real imports run in a background thread so the request returns immediately
+    # with a progress_id the client polls (and so a long import isn't capped by
+    # the request timeout). Dry-run validation stays synchronous (it's fast and
+    # the caller wants the result inline).
+    if not import_params["dry_run"]:
+        progress_id = create_progress_tracker()
+        worker = threading.Thread(
+            target=_run_import_worker,
+            args=(
+                temp_filepath,
+                cleanup_temp,
+                institution_id,
+                dict(import_params),
+                progress_id,
+            ),
+            daemon=True,
+        )
+        worker.start()
+        return (
+            jsonify(
+                {
+                    "success": True,
+                    "async": True,
+                    "progress_id": progress_id,
+                    "message": "Import started",
+                    "dry_run": False,
+                }
+            ),
+            202,
+        )
+
     try:
-        # Import the Excel processing function
         from src.services.import_service import import_excel
 
-        # Execute the import
         result = import_excel(
             file_path=temp_filepath,
             institution_id=institution_id,
             conflict_strategy=import_params["conflict_strategy"],
-            dry_run=import_params["dry_run"],
+            dry_run=True,
             adapter_id=import_params["adapter_id"],
             verbose=import_params["verbose_output"],
         )
@@ -473,11 +502,7 @@ def _process_excel_import(
             jsonify(
                 {
                     "success": True,
-                    "message": (
-                        "Import completed successfully"
-                        if not import_params["dry_run"]
-                        else "Validation completed successfully"
-                    ),
+                    "message": "Validation completed successfully",
                     "records_processed": result.records_processed,
                     "records_created": result.records_created,
                     "records_updated": result.records_updated,
@@ -486,7 +511,7 @@ def _process_excel_import(
                     "execution_time": result.execution_time,
                     "errors": result.errors,
                     "warnings": result.warnings,
-                    "dry_run": import_params["dry_run"],
+                    "dry_run": True,
                 }
             ),
             200,
@@ -496,3 +521,78 @@ def _process_excel_import(
         # Clean up temporary file (but not demo files)
         if cleanup_temp and os.path.exists(temp_filepath):
             os.remove(temp_filepath)
+
+
+def _run_import_worker(
+    temp_filepath: str,
+    cleanup_temp: bool,
+    institution_id: str,
+    import_params: Dict[str, Any],
+    progress_id: str,
+) -> None:
+    """Run an import in a background thread, reporting progress to the tracker."""
+    from src.services.import_service import import_excel
+
+    def on_progress(
+        percentage: int = 0,
+        message: str = "",
+        records_processed: int = 0,
+        total_records: int = 0,
+        **_: Any,
+    ) -> None:
+        update_progress(
+            progress_id,
+            status="running",
+            percentage=percentage,
+            message=message,
+            records_processed=records_processed,
+            total_records=total_records,
+        )
+
+    try:
+        result = import_excel(
+            file_path=temp_filepath,
+            institution_id=institution_id,
+            conflict_strategy=import_params["conflict_strategy"],
+            dry_run=False,
+            adapter_id=import_params["adapter_id"],
+            verbose=import_params["verbose_output"],
+            progress_callback=on_progress,
+        )
+        status = "complete" if not result.errors else "error"
+        update_progress(
+            progress_id,
+            status=status,
+            percentage=100,
+            message=(
+                "Import complete"
+                if status == "complete"
+                else "Import finished with errors"
+            ),
+            result={
+                "records_processed": result.records_processed,
+                "records_created": result.records_created,
+                "records_updated": result.records_updated,
+                "records_skipped": result.records_skipped,
+                "errors": result.errors,
+                "warnings": result.warnings,
+            },
+        )
+    except Exception as e:  # noqa: BLE001 - report failure to the client via tracker
+        logger.error(f"Async import failed: {e}")
+        update_progress(
+            progress_id, status="error", message="Import failed", error=str(e)
+        )
+    finally:
+        if cleanup_temp and os.path.exists(temp_filepath):
+            try:
+                os.remove(temp_filepath)
+            except OSError:
+                pass
+        # Release this thread's DB session so it isn't leaked.
+        try:
+            from src.database.database_service import db
+
+            getattr(getattr(db, "sql", None), "remove_session", lambda: None)()
+        except Exception:  # noqa: BLE001 - best-effort cleanup
+            pass

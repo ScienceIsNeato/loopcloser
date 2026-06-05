@@ -216,7 +216,14 @@ class TestImportEndpoints(CommonAuthMixin):
             os.unlink(tmp_path)
 
     def test_import_excel_service_exception(self) -> None:
-        """Test Excel import when service raises exception."""
+        """A service exception during a real (async) import surfaces via progress.
+
+        Real imports run in a background thread and the request returns 202 with
+        a progress_id; failures are reported through the progress tracker rather
+        than the POST response.
+        """
+        import time
+
         with patch(
             "src.services.import_service.import_excel",
             side_effect=Exception("Import failed"),
@@ -232,11 +239,24 @@ class TestImportEndpoints(CommonAuthMixin):
                         "/api/import/excel", data={"excel_file": (f, "test.xlsx")}
                     )
 
-                assert response.status_code == 500
+                # The import is accepted and started asynchronously.
+                assert response.status_code == 202
                 data = response.get_json()
-                assert data["success"] is False
-                assert "error" in data
-                # Import exceptions are handled synchronously and returned immediately
+                assert data["success"] is True
+                progress_id = data["progress_id"]
+
+                # The worker thread reports the failure via the progress tracker.
+                progress = {}
+                for _ in range(60):
+                    progress = self.client.get(
+                        f"/api/import/progress/{progress_id}"
+                    ).get_json()
+                    if progress.get("status") == "error":
+                        break
+                    time.sleep(0.05)
+
+                assert progress.get("status") == "error"
+                assert "error" in progress
             finally:
                 os.unlink(tmp_path)
 
