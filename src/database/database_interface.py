@@ -203,6 +203,13 @@ class DatabaseInterface(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    def get_course_outcomes_by_course_ids(
+        self, course_ids: List[str]
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        """Bulk-fetch course outcomes grouped by course_id (avoids N+1)."""
+        raise NotImplementedError
+
+    @abstractmethod
     def get_course_outcome(self, outcome_id: str) -> Optional[Dict[str, Any]]:
         """Get single course outcome by ID (includes assessment_data and narrative)"""
         raise NotImplementedError

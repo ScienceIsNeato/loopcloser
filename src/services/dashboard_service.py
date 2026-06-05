@@ -15,6 +15,7 @@ from src.database.database_service import (  # noqa: F401  re-export for enrichm
     get_all_terms,
     get_all_users,
     get_course_outcomes,
+    get_course_outcomes_by_course_ids,
     get_courses_by_program,
     get_institution_by_id,
     get_programs_by_institution,

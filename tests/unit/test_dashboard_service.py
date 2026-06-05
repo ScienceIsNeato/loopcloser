@@ -285,17 +285,20 @@ class TestDashboardServiceOfferingRollups:
 class TestDashboardServiceCLOEnrichment:
     """Test CLO data enrichment functionality."""
 
-    @patch("src.services.dashboard_service.get_course_outcomes")
+    @patch("src.services.dashboard_service.get_course_outcomes_by_course_ids")
     def test_enrich_courses_with_clo_data_success(
         self, mock_get_clos: Any, service: Any
     ) -> None:
-        """Test successful CLO data enrichment."""
+        """Test successful CLO data enrichment (bulk-fetched in one query)."""
         # Mock CLO data
         mock_clos = [
             {"clo_number": "CLO1", "description": "First learning outcome"},
             {"clo_number": "CLO2", "description": "Second learning outcome"},
         ]
-        mock_get_clos.return_value = mock_clos
+        mock_get_clos.return_value = {
+            "course-1": mock_clos,
+            "course-2": mock_clos,
+        }
 
         courses = [
             {"course_id": "course-1", "course_number": "CS-101"},
@@ -310,17 +313,16 @@ class TestDashboardServiceCLOEnrichment:
         assert result[1]["clo_count"] == 2
         assert result[1]["clos"] == mock_clos
 
-        # Verify get_course_outcomes was called for each course
-        assert mock_get_clos.call_count == 2
-        mock_get_clos.assert_any_call("course-1")
-        mock_get_clos.assert_any_call("course-2")
+        # Verify CLOs were fetched in a single bulk call for all courses
+        assert mock_get_clos.call_count == 1
+        mock_get_clos.assert_called_once_with(["course-1", "course-2"])
 
-    @patch("src.services.dashboard_service.get_course_outcomes")
+    @patch("src.services.dashboard_service.get_course_outcomes_by_course_ids")
     def test_enrich_courses_with_clo_data_no_clos(
         self, mock_get_clos: Any, service: Any
     ) -> None:
         """Test CLO enrichment when no CLOs exist."""
-        mock_get_clos.return_value = []
+        mock_get_clos.return_value = {}
 
         courses = [{"course_id": "course-1", "course_number": "CS-101"}]
         result = service._enrich_courses_with_clo_data(courses)
@@ -328,7 +330,7 @@ class TestDashboardServiceCLOEnrichment:
         assert result[0]["clo_count"] == 0
         assert result[0]["clos"] == []
 
-    @patch("src.services.dashboard_service.get_course_outcomes")
+    @patch("src.services.dashboard_service.get_course_outcomes_by_course_ids")
     def test_enrich_courses_with_clo_data_error_handling(
         self, mock_get_clos: Any, service: Any
     ) -> None:

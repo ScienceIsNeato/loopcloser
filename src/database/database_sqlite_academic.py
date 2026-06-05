@@ -129,13 +129,27 @@ class SQLDatabaseAcademicMixin:
                 .all()
             )
 
+            # Batch-load courses (one query, not one per offering) to avoid N+1.
+            course_ids = {o.course_id for o in offerings if o.course_id}
+            courses = (
+                {
+                    c.id: c
+                    for c in session.execute(
+                        select(Course).where(Course.id.in_(course_ids))
+                    ).scalars()
+                }
+                if course_ids
+                else {}
+            )
+
             result: List[Dict[str, Any]] = []
             for offering in offerings:
                 offering_dict = to_dict(offering)
 
-                if offering.course:
-                    offering_dict["course_number"] = offering.course.course_number
-                    offering_dict["course_title"] = offering.course.course_title
+                course = courses.get(offering.course_id)
+                if course:
+                    offering_dict["course_number"] = course.course_number
+                    offering_dict["course_title"] = course.course_title
 
                 result.append(offering_dict)
 
