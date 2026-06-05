@@ -1,4 +1,4 @@
-/* global setLoadingState, setErrorState, setEmptyState */
+/* global setLoadingState, setErrorState, setEmptyState, setSelectLoading, setSelectReady */
 /**
  * PLO Dashboard — Program → PLO → CLO → section drilldown.
  *
@@ -177,82 +177,97 @@
     // Filter population
     // ===================================================================
     async _loadFilters() {
+      // Show spinners on both dropdowns while fetching
+      setSelectLoading(this._el.programFilter, "Loading programs…");
+      setSelectLoading(this._el.termFilter, "Loading terms…");
       await Promise.all([this._loadPrograms(), this._loadTerms()]);
     },
 
     async _loadPrograms() {
-      const resp = await fetch("/api/programs", { credentials: "include" });
-      if (!resp.ok) return;
-      const data = await resp.json();
-      this.programs = data.programs || [];
-
       const sel = this._el.programFilter;
-      if (!sel) return;
-      sel.innerHTML = "";
-
-      if (this.programs.length === 0) {
-        const opt = document.createElement("option");
-        opt.value = "";
-        opt.textContent = "No programs found";
-        sel.appendChild(opt);
-        return;
-      }
-
-      // "All Programs" option for institution admins
-      const allOpt = document.createElement("option");
-      allOpt.value = "";
-      allOpt.textContent = "All Programs";
-      sel.appendChild(allOpt);
-
-      this.programs.forEach((p) => {
-        const opt = document.createElement("option");
-        opt.value = p.program_id || p.id;
-        opt.textContent = p.name;
-        sel.appendChild(opt);
-      });
-
-      // Default program: last selected (localStorage) → "All Programs"
-      let initial = null;
       try {
-        initial = localStorage.getItem(STORAGE_KEY_PROGRAM);
-      } catch (_) {
-        /* ignore */
-      }
-      const validIds = this.programs.map((p) => p.program_id || p.id);
-      if (!initial || !validIds.includes(initial)) {
-        initial = ""; // default to All Programs
-      }
-      sel.value = initial;
-      this.currentProgramId = initial;
-      this._updateProgramActions();
-    },
+        const resp = await fetch("/api/programs", { credentials: "include" });
+        if (!resp.ok) {
+          setSelectReady(sel);
+          return;
+        }
+        const data = await resp.json();
+        this.programs = data.programs || [];
+        setSelectReady(sel);
+        if (!sel) return;
+        sel.innerHTML = "";
 
-    async _loadTerms() {
-      const resp = await fetch("/api/terms?all=true", {
-        credentials: "include",
-      });
-      if (!resp.ok) return;
-      const data = await resp.json();
-      this.terms = data.terms || [];
-
-      const sel = this._el.termFilter;
-      if (!sel) return;
-      // keep the "All Terms" option, append the rest
-      this.terms
-        .slice()
-        .sort(
-          (a, b) => new Date(b.start_date || 0) - new Date(a.start_date || 0),
-        )
-        .forEach((t) => {
+        if (this.programs.length === 0) {
           const opt = document.createElement("option");
-          opt.value = t.term_id || t.id || "";
-          opt.textContent = t.term_name || t.name || "Term";
+          opt.value = "";
+          opt.textContent = "No programs found";
+          sel.appendChild(opt);
+          return;
+        }
+
+        // "All Programs" option for institution admins
+        const allOpt = document.createElement("option");
+        allOpt.value = "";
+        allOpt.textContent = "All Programs";
+        sel.appendChild(allOpt);
+
+        this.programs.forEach((p) => {
+          const opt = document.createElement("option");
+          opt.value = p.program_id || p.id;
+          opt.textContent = p.name;
           sel.appendChild(opt);
         });
 
-      const defaultTerm = pickDefaultTerm(this.terms);
-      sel.value = defaultTerm;
-      this.currentTermId = defaultTerm;
+        // Default program: last selected (localStorage) → "All Programs"
+        let initial = null;
+        try {
+          initial = localStorage.getItem(STORAGE_KEY_PROGRAM);
+        } catch (_) {
+          /* ignore */
+        }
+        const validIds = this.programs.map((p) => p.program_id || p.id);
+        if (!initial || !validIds.includes(initial)) {
+          initial = ""; // default to All Programs
+        }
+        sel.value = initial;
+        this.currentProgramId = initial;
+        this._updateProgramActions();
+      } catch (_) {
+        setSelectReady(sel);
+      }
+    },
+
+    async _loadTerms() {
+      const sel = this._el.termFilter;
+      try {
+        const resp = await fetch("/api/terms?all=true", {
+          credentials: "include",
+        });
+        setSelectReady(sel);
+        if (!resp.ok || !sel) return;
+        const data = await resp.json();
+        this.terms = data.terms || [];
+
+        // keep the "All Terms" option, append the rest
+        sel.innerHTML = '<option value="">All Terms</option>';
+        this.terms
+          .slice()
+          .sort(
+            (a, b) => new Date(b.start_date || 0) - new Date(a.start_date || 0),
+          )
+          .forEach((t) => {
+            const opt = document.createElement("option");
+            opt.value = t.term_id || t.id || "";
+            opt.textContent = t.term_name || t.name || "Term";
+            sel.appendChild(opt);
+          });
+
+        const defaultTerm = pickDefaultTerm(this.terms);
+        sel.value = defaultTerm;
+        this.currentTermId = defaultTerm;
+      } catch (_) {
+        setSelectReady(sel);
+      }
     },
 
     /**

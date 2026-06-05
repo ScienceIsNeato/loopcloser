@@ -17,10 +17,14 @@ const {
   setLoadingState,
   setErrorState,
   setEmptyState,
+  setSelectLoading,
+  setSelectReady,
 } = require("../../../static/dashboard_utils");
 global.setLoadingState = setLoadingState;
 global.setErrorState = setErrorState;
 global.setEmptyState = setEmptyState;
+global.setSelectLoading = setSelectLoading;
+global.setSelectReady = setSelectReady;
 
 const {
   PloDashboard,

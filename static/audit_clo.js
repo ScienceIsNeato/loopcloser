@@ -1,3 +1,4 @@
+/* global setSelectLoading, setSelectReady */
 /**
  * Get status badge HTML with color-coded scheme:
  * Unassigned=grey, Assigned=black, In Progress=blue,
@@ -504,12 +505,20 @@ document.addEventListener("DOMContentLoaded", () => {
   toggleReworkMode(false);
 
   /**
-   * Initialize filters (programs, terms)
+   * Initialize filters (programs, terms, courses) with loading spinners.
    */
   async function initialize() {
+    // Show loading state on each filter select while fetching
+    if (typeof setSelectLoading === "function") {
+      setSelectLoading(programFilter, "Loading programs…");
+      setSelectLoading(termFilter, "Loading terms…");
+      setSelectLoading(courseFilter, "Loading courses…");
+    }
+
     try {
       // Load programs
       const progResponse = await fetch("/api/programs");
+      if (typeof setSelectReady === "function") setSelectReady(programFilter);
       if (progResponse.ok) {
         const data = await progResponse.json();
         const programs = data.programs || [];
@@ -525,6 +534,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       // Load terms
       const termResponse = await fetch("/api/terms?all=true");
+      if (typeof setSelectReady === "function") setSelectReady(termFilter);
       if (termResponse.ok) {
         const data = await termResponse.json();
         const terms = data.terms || [];
@@ -542,6 +552,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       // Load courses
       const courseResponse = await fetch("/api/courses");
+      if (typeof setSelectReady === "function") setSelectReady(courseFilter);
       if (courseResponse.ok) {
         const data = await courseResponse.json();
         const courses = data.courses || [];
@@ -563,6 +574,12 @@ document.addEventListener("DOMContentLoaded", () => {
       // Initial load of CLOs
       await loadCLOs();
     } catch (error) {
+      // Ensure selects are re-enabled even on failure
+      if (typeof setSelectReady === "function") {
+        setSelectReady(programFilter);
+        setSelectReady(termFilter);
+        setSelectReady(courseFilter);
+      }
       // eslint-disable-next-line no-console
       console.error("Failed to initialize filters:", error);
       // Fallback to loading CLOs even if filters fail

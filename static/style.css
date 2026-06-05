@@ -174,3 +174,26 @@ select[readonly] {
   color: #6c757d;
   font-style: italic;
 }
+
+/* -----------------------------------------------------------------------
+   Select loading state (setSelectLoading / setSelectReady in dashboard_utils)
+   The wrapper div gets position:relative; the spinner sits at the right edge.
+   ----------------------------------------------------------------------- */
+.select-loading-wrap {
+  display: block;
+}
+
+.select-loading-wrap .select-loading-spinner {
+  position: absolute;
+  right: 2rem; /* leave room for the native select chevron */
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Dim the select text while loading so the spinner reads as the active signal */
+.select-loading-wrap select:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
