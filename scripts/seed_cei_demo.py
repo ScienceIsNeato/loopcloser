@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
 from typing import Any, cast
 
@@ -104,6 +105,14 @@ _RESET_STEPS = [
     ("users", "DELETE FROM users WHERE institution_id = :iid"),
     ("institution", "DELETE FROM institutions WHERE id = :iid"),
 ]
+
+
+def _mask_db_url(url: str) -> str:
+    """Redact the password in a database URL before printing it.
+
+    e.g. postgresql://user:secret@host/db -> postgresql://user:***@host/db
+    """
+    return re.sub(r"(://[^:/@]+:)[^@]+(@)", r"\1***\2", url)
 
 
 def reset_cei_data(institution_id: str) -> None:
@@ -218,7 +227,7 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    print(f"Database: {os.environ.get('DATABASE_URL', '(default)')}")
+    print(f"Database: {_mask_db_url(os.environ.get('DATABASE_URL', '(default)'))}")
 
     existing = dbs.get_institution_by_short_name(INSTITUTION_SHORT_NAME)
     if args.reset:
