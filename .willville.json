@@ -1,7 +1,7 @@
 {
   "agent": {
-    "status": "CEI import works end to end locally — opening a PR to get it on dev",
-    "direction": "Merge and deploy to dev so Matt can upload the file and play with it",
-    "last_update": "2026-06-04T23:30:00Z"
+    "status": "CEI import is live on dev, institution and admin seeded so Matt can log in and upload",
+    "direction": "Matt test-drives the upload on dev; ready to fold in feedback",
+    "last_update": "2026-06-05T02:00:00Z"
   }
 }
