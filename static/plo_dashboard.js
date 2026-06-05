@@ -194,7 +194,6 @@
         const data = await resp.json();
         this.programs = data.programs || [];
         setSelectReady(sel);
-        if (!sel) return;
         sel.innerHTML = "";
 
         if (this.programs.length === 0) {
@@ -222,8 +221,8 @@
         let initial = null;
         try {
           initial = localStorage.getItem(STORAGE_KEY_PROGRAM);
-        } catch (_) {
-          /* ignore */
+        } catch (_storageErr) {
+          /* ignore quota / private-mode errors */
         }
         const validIds = this.programs.map((p) => p.program_id || p.id);
         if (!initial || !validIds.includes(initial)) {
@@ -232,7 +231,7 @@
         sel.value = initial;
         this.currentProgramId = initial;
         this._updateProgramActions();
-      } catch (_) {
+      } catch (_fetchErr) {
         setSelectReady(sel);
       }
     },

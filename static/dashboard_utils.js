@@ -141,7 +141,6 @@ function resolveTimelineStatus(record, options = {}) {
 function setSelectLoading(selectEl, message) {
   if (!selectEl) return;
   selectEl.disabled = true;
-  selectEl.dataset.prevContent = selectEl.innerHTML;
 
   const label = message || "Loading…";
 

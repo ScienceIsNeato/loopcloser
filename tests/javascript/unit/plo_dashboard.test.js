@@ -10,21 +10,8 @@
  *    but exercise the same code paths the browser hits.
  */
 
-// dashboard_utils helpers are loaded as browser globals at runtime;
-// replicate that here so plo_dashboard.js's setLoadingState/etc calls
-// resolve. Same pattern as program_dashboard.test.js.
-const {
-  setLoadingState,
-  setErrorState,
-  setEmptyState,
-  setSelectLoading,
-  setSelectReady,
-} = require("../../../static/dashboard_utils");
-global.setLoadingState = setLoadingState;
-global.setErrorState = setErrorState;
-global.setEmptyState = setEmptyState;
-global.setSelectLoading = setSelectLoading;
-global.setSelectReady = setSelectReady;
+// dashboard_utils globals (setLoadingState, setSelectLoading, etc.) are
+// exposed globally via tests/javascript/setupTests.js — no per-file setup needed.
 
 const {
   PloDashboard,

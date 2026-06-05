@@ -506,80 +506,76 @@ document.addEventListener("DOMContentLoaded", () => {
 
   /**
    * Initialize filters (programs, terms, courses) with loading spinners.
+   * All three fetches fire in parallel; each select re-enables once its own
+   * response arrives (same pattern as plo_dashboard._loadFilters).
    */
   async function initialize() {
-    // Show loading state on each filter select while fetching
-    if (typeof setSelectLoading === "function") {
-      setSelectLoading(programFilter, "Loading programs…");
-      setSelectLoading(termFilter, "Loading terms…");
-      setSelectLoading(courseFilter, "Loading courses…");
+    setSelectLoading(programFilter, "Loading programs…");
+    setSelectLoading(termFilter, "Loading terms…");
+    setSelectLoading(courseFilter, "Loading courses…");
+
+    async function loadPrograms() {
+      try {
+        const resp = await fetch("/api/programs");
+        setSelectReady(programFilter);
+        if (!resp.ok || !programFilter) return;
+        const { programs = [] } = await resp.json();
+        programs.forEach((prog) => {
+          const option = document.createElement("option");
+          option.value = prog.program_id || prog.id;
+          option.textContent = prog.name;
+          programFilter.appendChild(option);
+        });
+      } catch (_) {
+        setSelectReady(programFilter);
+      }
     }
 
-    try {
-      // Load programs
-      const progResponse = await fetch("/api/programs");
-      if (typeof setSelectReady === "function") setSelectReady(programFilter);
-      if (progResponse.ok) {
-        const data = await progResponse.json();
-        const programs = data.programs || [];
-        if (programFilter) {
-          programs.forEach((prog) => {
-            const option = document.createElement("option");
-            option.value = prog.program_id || prog.id; // API returns program_id
-            option.textContent = prog.name;
-            programFilter.appendChild(option);
-          });
-        }
-      }
-
-      // Load terms
-      const termResponse = await fetch("/api/terms?all=true");
-      if (typeof setSelectReady === "function") setSelectReady(termFilter);
-      if (termResponse.ok) {
-        const data = await termResponse.json();
-        const terms = data.terms || [];
-        if (termFilter) {
-          terms.sort((a, b) => new Date(b.start_date) - new Date(a.start_date));
-
-          terms.forEach((term) => {
+    async function loadTerms() {
+      try {
+        const resp = await fetch("/api/terms?all=true");
+        setSelectReady(termFilter);
+        if (!resp.ok || !termFilter) return;
+        const { terms = [] } = await resp.json();
+        terms
+          .sort((a, b) => new Date(b.start_date) - new Date(a.start_date))
+          .forEach((term) => {
             const option = document.createElement("option");
             option.value = term.term_id || term.id || "";
             option.textContent = term.term_name || term.name || "Term";
             termFilter.appendChild(option);
           });
-        }
+      } catch (_) {
+        setSelectReady(termFilter);
       }
+    }
 
-      // Load courses
-      const courseResponse = await fetch("/api/courses");
-      if (typeof setSelectReady === "function") setSelectReady(courseFilter);
-      if (courseResponse.ok) {
-        const data = await courseResponse.json();
-        const courses = data.courses || [];
-        if (courseFilter) {
-          // Sort by course number
-          courses.sort((a, b) =>
+    async function loadCourses() {
+      try {
+        const resp = await fetch("/api/courses");
+        setSelectReady(courseFilter);
+        if (!resp.ok || !courseFilter) return;
+        const { courses = [] } = await resp.json();
+        courses
+          .sort((a, b) =>
             (a.course_number || "").localeCompare(b.course_number || ""),
-          );
-
-          courses.forEach((course) => {
+          )
+          .forEach((course) => {
             const option = document.createElement("option");
             option.value = course.course_id || course.id;
             option.textContent = `${course.course_number} - ${course.course_title}`;
             courseFilter.appendChild(option);
           });
-        }
+      } catch (_) {
+        setSelectReady(courseFilter);
       }
+    }
 
+    try {
+      await Promise.all([loadPrograms(), loadTerms(), loadCourses()]);
       // Initial load of CLOs
       await loadCLOs();
     } catch (error) {
-      // Ensure selects are re-enabled even on failure
-      if (typeof setSelectReady === "function") {
-        setSelectReady(programFilter);
-        setSelectReady(termFilter);
-        setSelectReady(courseFilter);
-      }
       // eslint-disable-next-line no-console
       console.error("Failed to initialize filters:", error);
       // Fallback to loading CLOs even if filters fail

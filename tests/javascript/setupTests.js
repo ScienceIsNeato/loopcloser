@@ -1,5 +1,20 @@
 require("@testing-library/jest-dom");
 
+// dashboard_utils globals — available in the browser via base_dashboard.html;
+// exposed here so any test that imports a script using these doesn't error.
+const {
+  setLoadingState,
+  setErrorState,
+  setEmptyState,
+  setSelectLoading,
+  setSelectReady,
+} = require("../../static/dashboard_utils");
+global.setLoadingState = setLoadingState;
+global.setErrorState = setErrorState;
+global.setEmptyState = setEmptyState;
+global.setSelectLoading = setSelectLoading;
+global.setSelectReady = setSelectReady;
+
 // Polyfill globalThis for older Node.js versions
 if (typeof globalThis === "undefined") {
   global.globalThis = global;
