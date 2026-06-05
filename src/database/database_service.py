@@ -341,6 +341,12 @@ def get_course_outcomes(course_id: str) -> List[Dict[str, Any]]:
     return _db_service.get_course_outcomes(course_id)
 
 
+def get_course_outcomes_by_course_ids(
+    course_ids: List[str],
+) -> Dict[str, List[Dict[str, Any]]]:
+    return _db_service.get_course_outcomes_by_course_ids(course_ids)
+
+
 def get_course_outcome(outcome_id: str) -> Optional[Dict[str, Any]]:
     return _db_service.get_course_outcome(outcome_id)
 

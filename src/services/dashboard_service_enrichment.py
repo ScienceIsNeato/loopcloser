@@ -5,7 +5,10 @@ from __future__ import annotations
 import sys
 from typing import Any, Callable, Dict, List, Optional, cast
 
-from src.database.database_service import get_course_outcomes
+from src.database.database_service import (
+    get_course_outcomes,
+    get_course_outcomes_by_course_ids,
+)
 from src.utils.logging_config import get_logger
 from src.utils.term_utils import TERM_STATUS_ACTIVE, get_all_term_statuses
 
@@ -21,6 +24,15 @@ class DashboardServiceEnrichmentMixin:
     def _service_get_course_outcomes() -> Any:
         service_module = sys.modules.get("src.services.dashboard_service")
         return getattr(service_module, "get_course_outcomes", get_course_outcomes)
+
+    @staticmethod
+    def _service_get_course_outcomes_by_course_ids() -> Any:
+        service_module = sys.modules.get("src.services.dashboard_service")
+        return getattr(
+            service_module,
+            "get_course_outcomes_by_course_ids",
+            get_course_outcomes_by_course_ids,
+        )
 
     def _add_course_counts_to_programs(
         self, programs: List[Dict[str, Any]], courses: List[Dict[str, Any]]
@@ -43,21 +55,29 @@ class DashboardServiceEnrichmentMixin:
     ) -> List[Dict[str, Any]]:
         enriched_courses: List[Dict[str, Any]] = []
 
+        # Bulk-fetch all CLOs in one query, then assign per course (avoids the
+        # N+1 of calling get_course_outcomes once per course on the dashboard).
+        clo_map: Dict[str, List[Dict[str, Any]]] = {}
+        if load_clos:
+            course_ids = [
+                str(cid)
+                for course in courses
+                if (cid := course.get("course_id", course.get("id"))) is not None
+            ]
+            try:
+                clo_map = self._service_get_course_outcomes_by_course_ids()(course_ids)
+            except Exception as e:
+                self.logger.warning(f"Failed to bulk-fetch CLOs: {e}")
+                clo_map = {}
+
         for course in courses:
             course_copy = course.copy()
             course_id = course.get("course_id", course.get("id"))
 
             if course_id and load_clos:
-                try:
-                    clos = self._service_get_course_outcomes()(course_id)
-                    course_copy["clo_count"] = len(clos) if clos else 0
-                    course_copy["clos"] = clos
-                except Exception as e:
-                    self.logger.warning(
-                        f"Failed to fetch CLOs for course {course_id}: {e}"
-                    )
-                    course_copy["clo_count"] = 0
-                    course_copy["clos"] = []
+                clos = clo_map.get(str(course_id), [])
+                course_copy["clo_count"] = len(clos)
+                course_copy["clos"] = clos
             else:
                 course_copy["clo_count"] = 0
                 course_copy["clos"] = []

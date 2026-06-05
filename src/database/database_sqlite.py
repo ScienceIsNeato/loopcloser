@@ -797,6 +797,31 @@ class SQLDatabase(
             )
             return [to_dict(outcome) for outcome in outcomes]
 
+    def get_course_outcomes_by_course_ids(
+        self, course_ids: List[str]
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        """Bulk-fetch course outcomes for many courses in one query.
+
+        Returns {course_id: [outcome_dict, ...]}. Avoids the N+1 of calling
+        get_course_outcomes once per course (e.g. on the admin dashboard).
+        """
+        grouped: Dict[str, List[Dict[str, Any]]] = {}
+        if not course_ids:
+            return grouped
+        with self.sql.session_scope() as session:
+            outcomes = (
+                session.execute(
+                    select(CourseOutcome).where(
+                        CourseOutcome.course_id.in_(set(course_ids))
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            for outcome in outcomes:
+                grouped.setdefault(str(outcome.course_id), []).append(to_dict(outcome))
+        return grouped
+
     def get_course_outcome(self, outcome_id: str) -> Optional[Dict[str, Any]]:
         """Get single course outcome by ID (includes students_took, students_passed, assessment_tool)"""
         with self.sql.session_scope() as session:
@@ -1120,6 +1145,19 @@ class SQLDatabase(
             )
             return [to_dict(user) for user in instructors]
 
+    @staticmethod
+    def _index_by_id(session: Any, model: Any, ids: Any) -> Dict[str, Any]:
+        """Return {id: instance} for the given ids in a single query.
+
+        Empty dict when there are no ids. Used to batch-load related rows and
+        avoid N+1 lookups.
+        """
+        id_set = {value for value in ids if value}
+        if not id_set:
+            return {}
+        rows = session.execute(select(model).where(model.id.in_(id_set))).scalars()
+        return {row.id: row for row in rows}
+
     def get_all_sections(self, institution_id: str) -> List[Dict[str, Any]]:
         with self.sql.session_scope() as session:
             sections = (
@@ -1132,34 +1170,43 @@ class SQLDatabase(
                 .all()
             )
 
-            # Enrich sections with related data using separate queries
-            enriched_sections: List[Dict[str, Any]] = []
+            # Batch-load related entities (one query per type, not per section).
+            # Previously this did 4 session.get() calls per section — an N+1 that
+            # scaled with the data and made the admin dashboard fire ~1k queries.
+            offerings = self._index_by_id(
+                session, CourseOffering, (s.offering_id for s in sections)
+            )
+            courses = self._index_by_id(
+                session, Course, (o.course_id for o in offerings.values())
+            )
+            terms = self._index_by_id(
+                session, Term, (o.term_id for o in offerings.values())
+            )
+            instructors = self._index_by_id(
+                session, User, (s.instructor_id for s in sections)
+            )
 
-            for i, section in enumerate(sections):
+            enriched_sections: List[Dict[str, Any]] = []
+            for section in sections:
                 section_dict = to_dict(section)
 
-                # Get offering details to find course and term
-                offering = session.get(CourseOffering, section.offering_id)
-
+                offering = offerings.get(section.offering_id)
                 if offering:
                     # Add course_id for easy filtering (e.g., in assessment UI)
                     section_dict["course_id"] = offering.course_id
                     section_dict["term_id"] = offering.term_id
 
-                    # Get course details
-                    course = session.get(Course, offering.course_id)
+                    course = courses.get(offering.course_id)
                     if course:
                         section_dict["course_number"] = course.course_number
                         section_dict["course_title"] = course.course_title
 
-                    # Get term details
-                    term = session.get(Term, offering.term_id)
+                    term = terms.get(offering.term_id)
                     if term:
                         section_dict["term_name"] = term.term_name
 
-                # Get instructor details if assigned
                 if section.instructor_id:
-                    instructor = session.get(User, section.instructor_id)
+                    instructor = instructors.get(section.instructor_id)
                     if instructor:
                         section_dict["instructor_name"] = (
                             f"{instructor.first_name} {instructor.last_name}"
