@@ -77,5 +77,8 @@ coverage-diff.json
 data/.db_generation*
 *.db.generation
 
+# Real institutional import files (contain real names; not for the repo)
+data/cei/
+
 # Scratch backups
 *.backup.*

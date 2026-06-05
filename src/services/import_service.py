@@ -29,6 +29,7 @@ from src.database.database_service import (  # noqa: F401  re-export for executi
     update_course_offering,
     update_user,
 )
+from src.services.import_service_cei_outcomes import ImportServiceCEIOutcomesMixin
 from src.services.import_service_execution import ImportServiceExecutionMixin
 from src.utils.constants import ADAPTER_NOT_FOUND_MSG, FILE_NOT_FOUND_MSG
 from src.utils.time_utils import get_current_time
@@ -181,7 +182,7 @@ def _add_utc_offset(datetime_str: str) -> str:
         return datetime_str + ".000000" + UTC_OFFSET
 
 
-class ImportService(ImportServiceExecutionMixin):
+class ImportService(ImportServiceCEIOutcomesMixin, ImportServiceExecutionMixin):
     """Service for handling data imports with conflict resolution using the adapter registry system"""
 
     def __init__(
@@ -266,12 +267,21 @@ class ImportService(ImportServiceExecutionMixin):
             if not parsed_data:
                 return self._create_import_result(start_time, dry_run)
 
-            # Process all parsed data
-            self._process_parsed_data(parsed_data, conflict_strategy, dry_run)
+            # Outcomes-results exports carry program/PLO/mapping/section-outcome
+            # data the generic roster pipeline doesn't persist; route those to
+            # the dedicated CEI outcomes path (which also links courses to
+            # programs via the published mappings).
+            if (
+                "section_outcomes" in parsed_data
+                or "plo_mapping_entries" in parsed_data
+            ):
+                self._process_cei_outcomes(parsed_data, dry_run)
+            else:
+                self._process_parsed_data(parsed_data, conflict_strategy, dry_run)
 
-            # Link courses to programs after successful import (not during dry run)
-            if not dry_run and len(self.stats["errors"]) == 0:
-                self._link_courses_to_programs()
+                # Link courses to programs after import (not during dry run)
+                if not dry_run and len(self.stats["errors"]) == 0:
+                    self._link_courses_to_programs()
 
         except Exception as e:
             error_msg = f"Unexpected error during import: {str(e)}"

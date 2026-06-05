@@ -1,7 +1,7 @@
 {
   "agent": {
-    "status": "Got Matt's CEI data file, mapped it out and planned the demo import",
-    "direction": "Building the import so Matt can upload it on dev and watch everything fill in",
-    "last_update": "2026-06-04T22:16:51Z"
+    "status": "CEI import works end to end locally — opening a PR to get it on dev",
+    "direction": "Merge and deploy to dev so Matt can upload the file and play with it",
+    "last_update": "2026-06-04T23:30:00Z"
   }
 }
