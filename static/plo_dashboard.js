@@ -1,4 +1,4 @@
-/* global setLoadingState, setErrorState, setEmptyState, setSelectLoading, setSelectReady */
+/* global setLoadingState, setErrorState, setEmptyState, setSelectLoading, setSelectReady, _buildPloSummaryBar */
 /**
  * PLO Dashboard — Program → PLO → CLO → section drilldown.
  *
@@ -10,6 +10,9 @@
  *
  * Exports `PloDashboard` on globalThis for integration tests / other pages
  * and via module.exports for Jest unit tests.
+ *
+ * Companion: plo_summary_bar.js (loaded before this file) provides
+ * _buildPloSummaryBar, extracted to keep this file under the line limit.
  */
 
 (function () {
@@ -189,6 +192,7 @@
         const resp = await fetch("/api/programs", { credentials: "include" });
         if (!resp.ok) {
           setSelectReady(sel);
+          sel.innerHTML = '<option value="">All Programs</option>';
           return;
         }
         const data = await resp.json();
@@ -232,7 +236,10 @@
         this.currentProgramId = initial;
         this._updateProgramActions();
       } catch (_fetchErr) {
-        setSelectReady(sel);
+        if (sel) {
+          setSelectReady(sel);
+          sel.innerHTML = '<option value="">All Programs</option>';
+        }
       }
     },
 
@@ -243,11 +250,14 @@
           credentials: "include",
         });
         setSelectReady(sel);
-        if (!resp.ok || !sel) return;
+        if (!sel) return;
+        if (!resp.ok) {
+          sel.innerHTML = '<option value="">All Terms</option>';
+          return;
+        }
         const data = await resp.json();
         this.terms = data.terms || [];
 
-        // keep the "All Terms" option, append the rest
         sel.innerHTML = '<option value="">All Terms</option>';
         this.terms
           .slice()
@@ -264,8 +274,11 @@
         const defaultTerm = pickDefaultTerm(this.terms);
         sel.value = defaultTerm;
         this.currentTermId = defaultTerm;
-      } catch (_) {
-        setSelectReady(sel);
+      } catch (_termFetchErr) {
+        if (sel) {
+          setSelectReady(sel);
+          sel.innerHTML = '<option value="">All Terms</option>';
+        }
       }
     },
 
@@ -560,78 +573,9 @@
       container.appendChild(ul);
     },
 
-    /**
-     * Build a compact summary bar showing PLO status distribution.
-     * Displays counts of satisfactory / needs-attention / no-data PLOs
-     * with a proportional progress bar.
-     */
+    /** Build a compact summary bar showing PLO status distribution. */
     _buildSummaryBar(plos) {
-      const bar = document.createElement("div");
-      bar.className = "plo-summary-bar";
-      if (!plos || plos.length === 0) return bar;
-
-      const threshold = 70;
-      const groups = { pass: [], fail: [], nodata: [] };
-      plos.forEach((plo) => {
-        const rate = plo.aggregate && plo.aggregate.pass_rate;
-        if (rate === null || rate === undefined) groups.nodata.push(plo);
-        else if (rate >= threshold) groups.pass.push(plo);
-        else groups.fail.push(plo);
-      });
-      const total = plos.length;
-
-      // Category rows with sparkline slots
-      const addRow = (label, cls, ploList) => {
-        if (ploList.length === 0) return;
-        const row = document.createElement("div");
-        row.className = "plo-summary-row " + cls;
-
-        const stat = document.createElement("span");
-        stat.className = "plo-summary-stat";
-        const dot = document.createElement("span");
-        dot.className = "plo-summary-dot";
-        stat.appendChild(dot);
-        stat.appendChild(document.createTextNode(ploList.length + " " + label));
-        row.appendChild(stat);
-
-        // Sparkline slots (populated after trend data loads)
-        const sparkGroup = document.createElement("div");
-        sparkGroup.className = "plo-summary-sparkline-group";
-        ploList.forEach((plo) => {
-          const slot = document.createElement("span");
-          slot.className = "plo-summary-sparkline-slot";
-          slot.dataset.ploId = plo.id;
-          const slotLabel = document.createElement("span");
-          slotLabel.className = "plo-summary-sparkline-label";
-          slotLabel.textContent =
-            plo.plo_number != null ? "(" + plo.plo_number + ")" : "";
-          slot.appendChild(slotLabel);
-          sparkGroup.appendChild(slot);
-        });
-        row.appendChild(sparkGroup);
-
-        bar.appendChild(row);
-      };
-      addRow("satisfactory", "stat-pass", groups.pass);
-      addRow("needs attention", "stat-fail", groups.fail);
-      addRow("no data", "stat-nodata", groups.nodata);
-
-      // Progress bar
-      const progress = document.createElement("div");
-      progress.className = "plo-summary-progress";
-      const addSegment = (count, cls) => {
-        if (count === 0) return;
-        const seg = document.createElement("div");
-        seg.className = "plo-summary-segment " + cls;
-        seg.style.width = (count / total) * 100 + "%";
-        progress.appendChild(seg);
-      };
-      addSegment(groups.pass.length, "seg-pass");
-      addSegment(groups.fail.length, "seg-fail");
-      addSegment(groups.nodata.length, "seg-nodata");
-      bar.appendChild(progress);
-
-      return bar;
+      return _buildPloSummaryBar(plos);
     },
 
     // ===================================================================

@@ -174,3 +174,25 @@ select[readonly] {
   color: #6c757d;
   font-style: italic;
 }
+
+/* -----------------------------------------------------------------------
+   Select loading state (setSelectLoading / setSelectReady in dashboard_utils)
+   Loaded here (not panels.css) because base_dashboard.html only loads style.css.
+   ----------------------------------------------------------------------- */
+.select-loading-wrap {
+  display: block;
+}
+
+.select-loading-wrap .select-loading-spinner {
+  position: absolute;
+  right: 2rem; /* leave room for the native select chevron */
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.select-loading-wrap select:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}

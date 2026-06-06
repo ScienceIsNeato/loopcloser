@@ -15,6 +15,11 @@ global.setEmptyState = setEmptyState;
 global.setSelectLoading = setSelectLoading;
 global.setSelectReady = setSelectReady;
 
+// plo_summary_bar.js is loaded before plo_dashboard.js in the browser;
+// expose its global so plo_dashboard tests don't error.
+const { _buildPloSummaryBar } = require("../../static/plo_summary_bar");
+global._buildPloSummaryBar = _buildPloSummaryBar;
+
 // Polyfill globalThis for older Node.js versions
 if (typeof globalThis === "undefined") {
   global.globalThis = global;

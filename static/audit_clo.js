@@ -518,8 +518,13 @@ document.addEventListener("DOMContentLoaded", () => {
       try {
         const resp = await fetch("/api/programs");
         setSelectReady(programFilter);
-        if (!resp.ok || !programFilter) return;
+        if (!programFilter) return;
+        if (!resp.ok) {
+          programFilter.innerHTML = '<option value="">All Programs</option>';
+          return;
+        }
         const { programs = [] } = await resp.json();
+        programFilter.innerHTML = '<option value="">All Programs</option>';
         programs.forEach((prog) => {
           const option = document.createElement("option");
           option.value = prog.program_id || prog.id;
@@ -528,6 +533,8 @@ document.addEventListener("DOMContentLoaded", () => {
         });
       } catch (_) {
         setSelectReady(programFilter);
+        if (programFilter)
+          programFilter.innerHTML = '<option value="">All Programs</option>';
       }
     }
 
@@ -535,8 +542,13 @@ document.addEventListener("DOMContentLoaded", () => {
       try {
         const resp = await fetch("/api/terms?all=true");
         setSelectReady(termFilter);
-        if (!resp.ok || !termFilter) return;
+        if (!termFilter) return;
+        if (!resp.ok) {
+          termFilter.innerHTML = '<option value="">All Terms</option>';
+          return;
+        }
         const { terms = [] } = await resp.json();
+        termFilter.innerHTML = '<option value="">All Terms</option>';
         terms
           .sort((a, b) => new Date(b.start_date) - new Date(a.start_date))
           .forEach((term) => {
@@ -547,6 +559,8 @@ document.addEventListener("DOMContentLoaded", () => {
           });
       } catch (_) {
         setSelectReady(termFilter);
+        if (termFilter)
+          termFilter.innerHTML = '<option value="">All Terms</option>';
       }
     }
 
@@ -554,8 +568,13 @@ document.addEventListener("DOMContentLoaded", () => {
       try {
         const resp = await fetch("/api/courses");
         setSelectReady(courseFilter);
-        if (!resp.ok || !courseFilter) return;
+        if (!courseFilter) return;
+        if (!resp.ok) {
+          courseFilter.innerHTML = '<option value="">All Courses</option>';
+          return;
+        }
         const { courses = [] } = await resp.json();
+        courseFilter.innerHTML = '<option value="">All Courses</option>';
         courses
           .sort((a, b) =>
             (a.course_number || "").localeCompare(b.course_number || ""),
@@ -568,6 +587,8 @@ document.addEventListener("DOMContentLoaded", () => {
           });
       } catch (_) {
         setSelectReady(courseFilter);
+        if (courseFilter)
+          courseFilter.innerHTML = '<option value="">All Courses</option>';
       }
     }
 
