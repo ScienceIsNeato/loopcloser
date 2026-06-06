@@ -1,4 +1,4 @@
-/* global setLoadingState, setErrorState, setEmptyState */
+/* global setLoadingState, setErrorState, setEmptyState, setSelectLoading, setSelectReady, _buildPloSummaryBar */
 /**
  * PLO Dashboard — Program → PLO → CLO → section drilldown.
  *
@@ -10,6 +10,9 @@
  *
  * Exports `PloDashboard` on globalThis for integration tests / other pages
  * and via module.exports for Jest unit tests.
+ *
+ * Companion: plo_summary_bar.js (loaded before this file) provides
+ * _buildPloSummaryBar, extracted to keep this file under the line limit.
  */
 
 (function () {
@@ -177,82 +180,106 @@
     // Filter population
     // ===================================================================
     async _loadFilters() {
+      // Show spinners on both dropdowns while fetching
+      setSelectLoading(this._el.programFilter, "Loading programs…");
+      setSelectLoading(this._el.termFilter, "Loading terms…");
       await Promise.all([this._loadPrograms(), this._loadTerms()]);
     },
 
     async _loadPrograms() {
-      const resp = await fetch("/api/programs", { credentials: "include" });
-      if (!resp.ok) return;
-      const data = await resp.json();
-      this.programs = data.programs || [];
-
       const sel = this._el.programFilter;
-      if (!sel) return;
-      sel.innerHTML = "";
-
-      if (this.programs.length === 0) {
-        const opt = document.createElement("option");
-        opt.value = "";
-        opt.textContent = "No programs found";
-        sel.appendChild(opt);
-        return;
-      }
-
-      // "All Programs" option for institution admins
-      const allOpt = document.createElement("option");
-      allOpt.value = "";
-      allOpt.textContent = "All Programs";
-      sel.appendChild(allOpt);
-
-      this.programs.forEach((p) => {
-        const opt = document.createElement("option");
-        opt.value = p.program_id || p.id;
-        opt.textContent = p.name;
-        sel.appendChild(opt);
-      });
-
-      // Default program: last selected (localStorage) → "All Programs"
-      let initial = null;
       try {
-        initial = localStorage.getItem(STORAGE_KEY_PROGRAM);
-      } catch (_) {
-        /* ignore */
-      }
-      const validIds = this.programs.map((p) => p.program_id || p.id);
-      if (!initial || !validIds.includes(initial)) {
-        initial = ""; // default to All Programs
-      }
-      sel.value = initial;
-      this.currentProgramId = initial;
-      this._updateProgramActions();
-    },
+        const resp = await fetch("/api/programs", { credentials: "include" });
+        if (!resp.ok) {
+          setSelectReady(sel);
+          sel.innerHTML = '<option value="">All Programs</option>';
+          return;
+        }
+        const data = await resp.json();
+        this.programs = data.programs || [];
+        setSelectReady(sel);
+        sel.innerHTML = "";
 
-    async _loadTerms() {
-      const resp = await fetch("/api/terms?all=true", {
-        credentials: "include",
-      });
-      if (!resp.ok) return;
-      const data = await resp.json();
-      this.terms = data.terms || [];
-
-      const sel = this._el.termFilter;
-      if (!sel) return;
-      // keep the "All Terms" option, append the rest
-      this.terms
-        .slice()
-        .sort(
-          (a, b) => new Date(b.start_date || 0) - new Date(a.start_date || 0),
-        )
-        .forEach((t) => {
+        if (this.programs.length === 0) {
           const opt = document.createElement("option");
-          opt.value = t.term_id || t.id || "";
-          opt.textContent = t.term_name || t.name || "Term";
+          opt.value = "";
+          opt.textContent = "No programs found";
+          sel.appendChild(opt);
+          return;
+        }
+
+        // "All Programs" option for institution admins
+        const allOpt = document.createElement("option");
+        allOpt.value = "";
+        allOpt.textContent = "All Programs";
+        sel.appendChild(allOpt);
+
+        this.programs.forEach((p) => {
+          const opt = document.createElement("option");
+          opt.value = p.program_id || p.id;
+          opt.textContent = p.name;
           sel.appendChild(opt);
         });
 
-      const defaultTerm = pickDefaultTerm(this.terms);
-      sel.value = defaultTerm;
-      this.currentTermId = defaultTerm;
+        // Default program: last selected (localStorage) → "All Programs"
+        let initial = null;
+        try {
+          initial = localStorage.getItem(STORAGE_KEY_PROGRAM);
+        } catch (_storageErr) {
+          /* ignore quota / private-mode errors */
+        }
+        const validIds = this.programs.map((p) => p.program_id || p.id);
+        if (!initial || !validIds.includes(initial)) {
+          initial = ""; // default to All Programs
+        }
+        sel.value = initial;
+        this.currentProgramId = initial;
+        this._updateProgramActions();
+      } catch (_fetchErr) {
+        if (sel) {
+          setSelectReady(sel);
+          sel.innerHTML = '<option value="">All Programs</option>';
+        }
+      }
+    },
+
+    async _loadTerms() {
+      const sel = this._el.termFilter;
+      try {
+        const resp = await fetch("/api/terms?all=true", {
+          credentials: "include",
+        });
+        setSelectReady(sel);
+        if (!sel) return;
+        if (!resp.ok) {
+          sel.innerHTML = '<option value="">All Terms</option>';
+          return;
+        }
+        const data = await resp.json();
+        this.terms = data.terms || [];
+
+        sel.innerHTML = '<option value="">All Terms</option>';
+        this.terms
+          .slice()
+          .sort(
+            (a, b) => new Date(b.start_date || 0) - new Date(a.start_date || 0),
+          )
+          .forEach((t) => {
+            const opt = document.createElement("option");
+            opt.value = t.term_id || t.id || "";
+            opt.textContent = t.term_name || t.name || "Term";
+            sel.appendChild(opt);
+          });
+
+        const defaultTerm = pickDefaultTerm(this.terms);
+        sel.value = defaultTerm;
+        this.currentTermId = defaultTerm;
+      } catch (_termFetchErr) {
+        if (sel) {
+          setSelectReady(sel);
+          sel.innerHTML = '<option value="">All Terms</option>';
+        }
+      }
     },
 
     /**
@@ -546,78 +573,9 @@
       container.appendChild(ul);
     },
 
-    /**
-     * Build a compact summary bar showing PLO status distribution.
-     * Displays counts of satisfactory / needs-attention / no-data PLOs
-     * with a proportional progress bar.
-     */
+    /** Build a compact summary bar showing PLO status distribution. */
     _buildSummaryBar(plos) {
-      const bar = document.createElement("div");
-      bar.className = "plo-summary-bar";
-      if (!plos || plos.length === 0) return bar;
-
-      const threshold = 70;
-      const groups = { pass: [], fail: [], nodata: [] };
-      plos.forEach((plo) => {
-        const rate = plo.aggregate && plo.aggregate.pass_rate;
-        if (rate === null || rate === undefined) groups.nodata.push(plo);
-        else if (rate >= threshold) groups.pass.push(plo);
-        else groups.fail.push(plo);
-      });
-      const total = plos.length;
-
-      // Category rows with sparkline slots
-      const addRow = (label, cls, ploList) => {
-        if (ploList.length === 0) return;
-        const row = document.createElement("div");
-        row.className = "plo-summary-row " + cls;
-
-        const stat = document.createElement("span");
-        stat.className = "plo-summary-stat";
-        const dot = document.createElement("span");
-        dot.className = "plo-summary-dot";
-        stat.appendChild(dot);
-        stat.appendChild(document.createTextNode(ploList.length + " " + label));
-        row.appendChild(stat);
-
-        // Sparkline slots (populated after trend data loads)
-        const sparkGroup = document.createElement("div");
-        sparkGroup.className = "plo-summary-sparkline-group";
-        ploList.forEach((plo) => {
-          const slot = document.createElement("span");
-          slot.className = "plo-summary-sparkline-slot";
-          slot.dataset.ploId = plo.id;
-          const slotLabel = document.createElement("span");
-          slotLabel.className = "plo-summary-sparkline-label";
-          slotLabel.textContent =
-            plo.plo_number != null ? "(" + plo.plo_number + ")" : "";
-          slot.appendChild(slotLabel);
-          sparkGroup.appendChild(slot);
-        });
-        row.appendChild(sparkGroup);
-
-        bar.appendChild(row);
-      };
-      addRow("satisfactory", "stat-pass", groups.pass);
-      addRow("needs attention", "stat-fail", groups.fail);
-      addRow("no data", "stat-nodata", groups.nodata);
-
-      // Progress bar
-      const progress = document.createElement("div");
-      progress.className = "plo-summary-progress";
-      const addSegment = (count, cls) => {
-        if (count === 0) return;
-        const seg = document.createElement("div");
-        seg.className = "plo-summary-segment " + cls;
-        seg.style.width = (count / total) * 100 + "%";
-        progress.appendChild(seg);
-      };
-      addSegment(groups.pass.length, "seg-pass");
-      addSegment(groups.fail.length, "seg-fail");
-      addSegment(groups.nodata.length, "seg-nodata");
-      bar.appendChild(progress);
-
-      return bar;
+      return _buildPloSummaryBar(plos);
     },
 
     // ===================================================================

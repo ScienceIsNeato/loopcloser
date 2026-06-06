@@ -128,12 +128,85 @@ function resolveTimelineStatus(record, options = {}) {
   ).toUpperCase();
 }
 
+/**
+ * Put a <select> element into a loading state.
+ *
+ * Disables the element and replaces its content with a single "Loading…"
+ * option accompanied by an inline spinner so the user knows a fetch is in
+ * flight.  Call setSelectReady() once the data arrives.
+ *
+ * @param {HTMLSelectElement} selectEl - The select to mark as loading.
+ * @param {string} [message="Loading…"] - Text shown inside the placeholder option.
+ */
+function setSelectLoading(selectEl, message) {
+  if (!selectEl) return;
+  selectEl.disabled = true;
+
+  const label = message || "Loading…";
+
+  // Build: <option>⠿ Loading…</option>  (spinner is CSS-driven via ::before)
+  selectEl.innerHTML = "";
+  const opt = document.createElement("option");
+  opt.value = "";
+  opt.textContent = label;
+  opt.className = "select-loading-option";
+  selectEl.appendChild(opt);
+
+  // Wrap the select in a position:relative container so we can overlay the
+  // spinner icon without shifting layout.  If it's already wrapped, reuse it.
+  const parent = selectEl.parentElement;
+  if (parent && !parent.classList.contains("select-loading-wrap")) {
+    const wrap = document.createElement("div");
+    wrap.className = "select-loading-wrap position-relative";
+    parent.insertBefore(wrap, selectEl);
+    wrap.appendChild(selectEl);
+
+    const icon = document.createElement("span");
+    icon.className =
+      "select-loading-spinner spinner-border spinner-border-sm text-secondary";
+    icon.setAttribute("aria-hidden", "true");
+    wrap.appendChild(icon);
+  } else if (parent && parent.classList.contains("select-loading-wrap")) {
+    // Already wrapped — ensure spinner is visible
+    const icon = parent.querySelector(".select-loading-spinner");
+    if (icon) icon.style.display = "";
+  }
+}
+
+/**
+ * Clear the loading state set by setSelectLoading().
+ *
+ * Re-enables the select and removes the spinner overlay.  The caller is
+ * responsible for populating the select with real options after this call.
+ *
+ * @param {HTMLSelectElement} selectEl - The select to restore.
+ */
+function setSelectReady(selectEl) {
+  if (!selectEl) return;
+  selectEl.disabled = false;
+
+  // Remove spinner overlay
+  const parent = selectEl.parentElement;
+  if (parent && parent.classList.contains("select-loading-wrap")) {
+    const icon = parent.querySelector(".select-loading-spinner");
+    if (icon) icon.remove();
+    // Unwrap: move select back to grandparent, remove the wrapper div
+    const grandparent = parent.parentElement;
+    if (grandparent) {
+      grandparent.insertBefore(selectEl, parent);
+      parent.remove();
+    }
+  }
+}
+
 // Export for use in other dashboard modules (for testing)
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     setLoadingState,
     setErrorState,
     setEmptyState,
+    setSelectLoading,
+    setSelectReady,
     deriveTimelineStatus,
     resolveTimelineStatus,
   };

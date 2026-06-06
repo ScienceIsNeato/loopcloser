@@ -1,3 +1,4 @@
+/* global setSelectLoading, setSelectReady */
 /**
  * Get status badge HTML with color-coded scheme:
  * Unassigned=grey, Assigned=black, In Progress=blue,
@@ -504,62 +505,95 @@ document.addEventListener("DOMContentLoaded", () => {
   toggleReworkMode(false);
 
   /**
-   * Initialize filters (programs, terms)
+   * Initialize filters (programs, terms, courses) with loading spinners.
+   * All three fetches fire in parallel; each select re-enables once its own
+   * response arrives (same pattern as plo_dashboard._loadFilters).
    */
   async function initialize() {
-    try {
-      // Load programs
-      const progResponse = await fetch("/api/programs");
-      if (progResponse.ok) {
-        const data = await progResponse.json();
-        const programs = data.programs || [];
-        if (programFilter) {
-          programs.forEach((prog) => {
-            const option = document.createElement("option");
-            option.value = prog.program_id || prog.id; // API returns program_id
-            option.textContent = prog.name;
-            programFilter.appendChild(option);
-          });
+    setSelectLoading(programFilter, "Loading programs…");
+    setSelectLoading(termFilter, "Loading terms…");
+    setSelectLoading(courseFilter, "Loading courses…");
+
+    async function loadPrograms() {
+      try {
+        const resp = await fetch("/api/programs");
+        setSelectReady(programFilter);
+        if (!programFilter) return;
+        if (!resp.ok) {
+          programFilter.innerHTML = '<option value="">All Programs</option>';
+          return;
         }
+        const { programs = [] } = await resp.json();
+        programFilter.innerHTML = '<option value="">All Programs</option>';
+        programs.forEach((prog) => {
+          const option = document.createElement("option");
+          option.value = prog.program_id || prog.id;
+          option.textContent = prog.name;
+          programFilter.appendChild(option);
+        });
+      } catch (_) {
+        setSelectReady(programFilter);
+        if (programFilter)
+          programFilter.innerHTML = '<option value="">All Programs</option>';
       }
+    }
 
-      // Load terms
-      const termResponse = await fetch("/api/terms?all=true");
-      if (termResponse.ok) {
-        const data = await termResponse.json();
-        const terms = data.terms || [];
-        if (termFilter) {
-          terms.sort((a, b) => new Date(b.start_date) - new Date(a.start_date));
-
-          terms.forEach((term) => {
+    async function loadTerms() {
+      try {
+        const resp = await fetch("/api/terms?all=true");
+        setSelectReady(termFilter);
+        if (!termFilter) return;
+        if (!resp.ok) {
+          termFilter.innerHTML = '<option value="">All Terms</option>';
+          return;
+        }
+        const { terms = [] } = await resp.json();
+        termFilter.innerHTML = '<option value="">All Terms</option>';
+        terms
+          .sort((a, b) => new Date(b.start_date) - new Date(a.start_date))
+          .forEach((term) => {
             const option = document.createElement("option");
             option.value = term.term_id || term.id || "";
             option.textContent = term.term_name || term.name || "Term";
             termFilter.appendChild(option);
           });
-        }
+      } catch (_) {
+        setSelectReady(termFilter);
+        if (termFilter)
+          termFilter.innerHTML = '<option value="">All Terms</option>';
       }
+    }
 
-      // Load courses
-      const courseResponse = await fetch("/api/courses");
-      if (courseResponse.ok) {
-        const data = await courseResponse.json();
-        const courses = data.courses || [];
-        if (courseFilter) {
-          // Sort by course number
-          courses.sort((a, b) =>
+    async function loadCourses() {
+      try {
+        const resp = await fetch("/api/courses");
+        setSelectReady(courseFilter);
+        if (!courseFilter) return;
+        if (!resp.ok) {
+          courseFilter.innerHTML = '<option value="">All Courses</option>';
+          return;
+        }
+        const { courses = [] } = await resp.json();
+        courseFilter.innerHTML = '<option value="">All Courses</option>';
+        courses
+          .sort((a, b) =>
             (a.course_number || "").localeCompare(b.course_number || ""),
-          );
-
-          courses.forEach((course) => {
+          )
+          .forEach((course) => {
             const option = document.createElement("option");
             option.value = course.course_id || course.id;
             option.textContent = `${course.course_number} - ${course.course_title}`;
             courseFilter.appendChild(option);
           });
-        }
+      } catch (_) {
+        setSelectReady(courseFilter);
+        if (courseFilter)
+          courseFilter.innerHTML = '<option value="">All Courses</option>';
       }
+    }
 
+    try {
+      await Promise.all([loadPrograms(), loadTerms(), loadCourses()]);
       // Initial load of CLOs
       await loadCLOs();
     } catch (error) {

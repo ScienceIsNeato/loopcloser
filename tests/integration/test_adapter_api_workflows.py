@@ -181,9 +181,7 @@ class TestAdapterAPIWorkflows:
 
             progress = {}
             for _ in range(100):
-                progress = client.get(
-                    f"/api/import/progress/{progress_id}"
-                ).get_json()
+                progress = client.get(f"/api/import/progress/{progress_id}").get_json()
                 if progress.get("status") in ("complete", "error"):
                     break
                 time.sleep(0.05)
